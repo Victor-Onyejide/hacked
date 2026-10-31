@@ -1,0 +1,237 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>SYSTEM BREACH</title>
+<style>
+  /* Layout: full-bleed terminal — a boot/intrusion sequence that dissolves into Matrix rain.
+     Single-theme by design: a hacker console only exists in the dark. */
+  :root{
+    --bg:#000500;
+    --rain:#00ff41;        /* classic phosphor green */
+    --rain-dim:#0a3f16;
+    --term:#39ff14;        /* brighter terminal green */
+    --alert:#ff2e2e;        /* breach red */
+    --amber:#ffb000;
+    --scan:rgba(0,255,65,.04);
+    --mono:'Courier New',ui-monospace,Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--term);
+    font-family:var(--mono);overflow:hidden;
+    padding-left:max(0px,env(safe-area-inset-left,0px));
+    padding-right:max(0px,env(safe-area-inset-right,0px));
+  }
+  #stage{position:fixed;inset:0;overflow:hidden}
+
+  /* CRT scanline + vignette overlay, sits above everything */
+  #stage::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:40;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 2px,var(--scan) 2px 4px),
+      radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%);
+    mix-blend-mode:screen;
+  }
+
+  canvas{position:fixed;inset:0;display:block;z-index:1}
+
+  /* ---- terminal boot panel ---- */
+  #term{
+    position:fixed;z-index:20;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    padding:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));
+  }
+  #panel{
+    width:min(640px,92vw);
+    text-shadow:0 0 6px currentColor;
+    font-size:clamp(12px,3.4vw,16px);
+    line-height:1.55;
+  }
+  #panel .line{white-space:pre-wrap;word-break:break-word}
+  .ok{color:var(--term)}
+  .warn{color:var(--amber)}
+  .bad{color:var(--alert);text-shadow:0 0 8px var(--alert)}
+  .dim{color:var(--rain-dim);text-shadow:none}
+
+  /* big breach banner */
+  #banner{
+    position:fixed;z-index:30;inset:0;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;
+    text-align:center;padding:16px;
+  }
+  #banner.show{display:flex}
+  #banner h1{
+    margin:0;font-size:clamp(34px,13vw,120px);font-weight:700;letter-spacing:.04em;
+    color:var(--alert);text-shadow:0 0 18px var(--alert),0 0 42px rgba(255,46,46,.5);
+    text-wrap:balance;animation:flick .12s steps(2) infinite, glitch 2.6s infinite;
+  }
+  #banner p{
+    margin:0;font-size:clamp(13px,4vw,22px);color:#fff;letter-spacing:.3em;
+    text-shadow:0 0 10px var(--rain);
+  }
+  @keyframes flick{0%{opacity:1}50%{opacity:.82}100%{opacity:1}}
+  @keyframes glitch{
+    0%,92%,100%{transform:translate(0,0);clip-path:none}
+    93%{transform:translate(-4px,1px)}
+    95%{transform:translate(5px,-2px)}
+    97%{transform:translate(-3px,2px)}
+  }
+
+  /* progress bar built from blocks */
+  #bar{margin-top:.8rem;color:var(--term)}
+  .cursor{display:inline-block;width:.6ch;background:var(--term);
+    animation:blink 1s steps(1) infinite;text-shadow:none}
+  @keyframes blink{50%{opacity:0}}
+
+  /* tiny replay hint once matrix is running */
+  #hint{
+    position:fixed;z-index:35;left:50%;transform:translateX(-50%);
+    bottom:calc(14px + env(safe-area-inset-bottom,0px));
+    color:var(--rain);opacity:0;font-size:12px;letter-spacing:.15em;
+    text-shadow:0 0 6px var(--rain);transition:opacity .6s;cursor:pointer;
+    background:rgba(0,0,0,.4);padding:6px 12px;border:1px solid var(--rain-dim);border-radius:3px;
+  }
+  #hint.show{opacity:.7}
+  @media(prefers-reduced-motion:reduce){
+    #banner h1{animation:none}
+    .cursor{animation:none}
+  }
+</style>
+
+<div id="stage">
+  <canvas id="rain"></canvas>
+  <div id="term"><div id="panel" aria-live="polite"></div></div>
+  <div id="banner" role="alert">
+    <h1>YOU'VE BEEN HACKED</h1>
+    <p>SYSTEM COMPROMISED</p>
+  </div>
+  <div id="hint" tabindex="0">↻ TAP TO RUN IT AGAIN</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = matchMedia('(prefers-reduced-motion:reduce)').matches;
+  var panel = document.getElementById('panel');
+  var term  = document.getElementById('term');
+  var banner= document.getElementById('banner');
+  var hint  = document.getElementById('hint');
+  var canvas= document.getElementById('rain');
+  var ctx   = canvas.getContext('2d');
+
+  /* ---------- Matrix rain ---------- */
+  var glyphs = "アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF<>[]{}=/*#$%&@".split("");
+  var cols, drops, fontSize, raf, running=false;
+  function sizeCanvas(){
+    var dpr = Math.min(window.devicePixelRatio||1,2);
+    canvas.width = Math.floor(innerWidth*dpr);
+    canvas.height= Math.floor(innerHeight*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    fontSize = innerWidth<480?14:18;
+    cols = Math.ceil(innerWidth/fontSize);
+    drops = new Array(cols);
+    for(var i=0;i<cols;i++) drops[i] = Math.random()*-50;
+  }
+  function draw(){
+    ctx.fillStyle = "rgba(0,5,0,0.08)";
+    ctx.fillRect(0,0,innerWidth,innerHeight);
+    ctx.font = fontSize+"px "+getComputedStyle(document.body).fontFamily;
+    for(var i=0;i<cols;i++){
+      var ch = glyphs[(Math.random()*glyphs.length)|0];
+      var x = i*fontSize, y = drops[i]*fontSize;
+      // bright leading char
+      ctx.fillStyle = "#c8ffd0"; ctx.fillText(ch,x,y);
+      ctx.fillStyle = "#00ff41"; ctx.fillText(ch,x,y-fontSize);
+      if(y>innerHeight && Math.random()>0.975) drops[i]=0;
+      drops[i]++;
+    }
+    raf = requestAnimationFrame(draw);
+  }
+  function startRain(){
+    if(running) return; running=true;
+    sizeCanvas();
+    ctx.fillStyle="#000500";ctx.fillRect(0,0,innerWidth,innerHeight);
+    draw();
+  }
+  addEventListener('resize', function(){ if(running) sizeCanvas(); });
+
+  /* ---------- scripted boot / intrusion sequence ---------- */
+  var seq = [
+    {t:'[ SYS ] establishing secure shell ...', c:'dim', d:260},
+    {t:'ssh root@192.168.0.' + ((Math.random()*254|0)+1) + '  —  connected', c:'ok', d:420},
+    {t:'[ OK ] bypassing firewall  █████████████  100%', c:'ok', d:360},
+    {t:'[ OK ] decrypting credentials  ████████░░  83%', c:'warn', d:300},
+    {t:'injecting payload .....', c:'ok', d:260, bar:true},
+    {t:'root access: GRANTED', c:'ok', d:500},
+    {t:'[ WARN ] target has detected intrusion', c:'warn', d:480},
+    {t:'downloading /home/user/* ... done', c:'ok', d:360},
+    {t:'wiping logs ... done', c:'ok', d:360},
+    {t:'!! TRACE DETECTED — DEPLOYING COUNTERMEASURES !!', c:'bad', d:700}
+  ];
+
+  function typeLine(obj, done){
+    var el=document.createElement('div');
+    el.className='line '+obj.c;
+    panel.appendChild(el);
+    var cur=document.createElement('span'); cur.className='cursor'; cur.textContent='▋';
+    var txt=obj.t, i=0;
+    if(reduce){ el.textContent=txt; el.appendChild(cur); setTimeout(function(){cur.remove();done();}, Math.min(obj.d,300)); return; }
+    (function step(){
+      el.textContent = txt.slice(0,i);
+      el.appendChild(cur);
+      i++;
+      if(i<=txt.length){ setTimeout(step, 8+Math.random()*22); }
+      else { setTimeout(function(){cur.remove(); done();}, obj.d); }
+    })();
+    // keep newest line centered-ish
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  function runBar(cb){
+    if(reduce){cb();return;}
+    var el=document.createElement('div'); el.id='bar'; el.className='line ok';
+    panel.appendChild(el);
+    var p=0;
+    var iv=setInterval(function(){
+      p+=Math.random()*9+3; if(p>100)p=100;
+      var filled=Math.round(p/5);
+      el.textContent='  ['+'█'.repeat(filled)+'░'.repeat(20-filled)+'] '+Math.floor(p)+'%';
+      if(p>=100){clearInterval(iv);setTimeout(cb,250);}
+    },90);
+  }
+
+  function runSequence(){
+    panel.innerHTML=''; banner.classList.remove('show'); hint.classList.remove('show');
+    term.style.display='flex';
+    var k=0;
+    (function next(){
+      if(k>=seq.length){ breach(); return; }
+      var obj=seq[k++];
+      if(obj.bar){ typeLine(obj,function(){ runBar(next); }); }
+      else { typeLine(obj,next); }
+    })();
+  }
+
+  function breach(){
+    banner.classList.add('show');
+    // red takeover, then dissolve into rain
+    setTimeout(function(){
+      term.style.display='none';
+      banner.style.transition='opacity 1s';
+      banner.style.opacity='0';
+      startRain();
+      setTimeout(function(){
+        banner.classList.remove('show');
+        banner.style.opacity=''; banner.style.transition='';
+        hint.classList.add('show');
+      }, 1100);
+    }, reduce?1200:2600);
+  }
+
+  function replay(){ running=false; cancelAnimationFrame(raf);
+    ctx.clearRect(0,0,canvas.width,canvas.height); runSequence(); }
+  hint.addEventListener('click', replay);
+  hint.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' ') replay(); });
+
+  runSequence();
+})();
+</script>
